@@ -121,7 +121,7 @@ NIGHTSHIFT fires eight distinct attack classes directly at the target's `/webhoo
 | `unsigned` | **CRITICAL** | [CWE-347](https://cwe.mitre.org/data/definitions/347.html) | `POST` payload without `X-Razorpay-Signature` header. | Unauthenticated requests trigger order fulfillment. | Strict cryptographic verification before parsing payload. |
 | `forged` | **CRITICAL** | [CWE-345](https://cwe.mitre.org/data/definitions/345.html) | Webhook payload signed with incorrect / guessed secret. | Attackers forge payment events without credentials. | Constant-time HMAC-SHA256 signature verification. |
 | `tamper` | **HIGH** | [CWE-347](https://cwe.mitre.org/data/definitions/347.html) | Payload amount modified (e.g., ₹20.00 for a ₹2,000.00 item). | Order fulfilled for a fraction of list price. | Reject invalid signatures and verify amount against order record. |
-| `over_refund` | **HIGH** | [CWE-840](https://cwe.mitre.org/data/definitions/840.html) | Webhook triggers refund larger than captured payment amount. | Business logic error drains merchant balances. | Invariant check: $\sum \text{refunds} + \text{new\_refund} \le \text{captured}$. |
+| `over_refund` | **HIGH** | [CWE-840](https://cwe.mitre.org/data/definitions/840.html) | Webhook triggers refund larger than captured payment amount. | Business logic error drains merchant balances. | Invariant check: `refunded_so_far + this_refund <= captured`. |
 | `stale` | **MEDIUM** | [CWE-294](https://cwe.mitre.org/data/definitions/294.html) | Webhook replayed with timestamp from years in the past. | Expired or superseded events processed out of lifecycle. | Enforce timestamp freshness threshold (e.g., 300s window). |
 | `idor` | **CRITICAL** | [CWE-639](https://cwe.mitre.org/data/definitions/639.html) | Webhook payment for an order ID belonging to another entity. | Merchant fulfills goods for untracked or arbitrary orders. | Verify order ownership against local DB & Razorpay API. |
 
@@ -129,18 +129,18 @@ NIGHTSHIFT fires eight distinct attack classes directly at the target's `/webhoo
 
 ## The 8 Money-Safety Invariants (Deterministic Oracles)
 
-The evaluation suite validates the ledger state against mathematical money-safety invariants:
+The evaluation suite validates the ledger state against deterministic money-safety invariants:
 
-| Oracle | Mathematical Condition | Violation Caught |
+| Oracle | Invariant Logic Check | Violation Caught |
 |:---|:---|:---|
-| **`idempotency`** | $\forall o \in \text{Orders}, \text{count}(\text{fulfillments}(o)) \le 1 \land \text{unique}(\text{event\_ids})$ | Duplicate delivery or retried webhook causes duplicate fulfillment. |
-| **`conservation`** | $\forall (o, k, a), \text{booked}(o, k, a) \le \text{ground\_truth}(o, k, a)$ | Booking financial movements that do not exist in settlement history. |
-| **`no_unpaid_fulfillment`** | $\forall o \in \text{fulfillments}, \exists \text{capture}(o) : \text{amount} \ge \text{order\_amount}(o)$ | Shipping goods or activating services without verified full payment. |
-| **`reconciliation_completeness`**| $\forall o \in \text{legit\_captures}, o \in \text{fulfillments}$ | Webhook dropped in transit: money received, but order remains unfulfilled. |
-| **`signature_integrity`** | $\text{ledger\_events} \cap \text{invalid\_signature\_events} = \emptyset$ | State mutated by unsigned, forged, or tampered webhook deliveries. |
-| **`terminal_state_monotonicity`**| $\text{status}(o) \in \{\text{CREATED} \to \text{PAID} \to \text{REFUNDED}\}$ | Out-of-order event delivery reverts a refunded order back to paid. |
-| **`no_over_refund`** | $\forall o, \sum \text{refunded}(o) \le \sum \text{captured}(o)$ | Refunding more capital than was captured on an order. |
-| **`currency_consistency`** | $\forall e \in \text{ledger}(o), e.\text{currency} = o.\text{currency}$ | Cross-currency mismatch booked against an order (e.g., USD vs INR). |
+| **`idempotency`** | `fulfillments(order) <= 1 && unique(ledger_events)` | Duplicate delivery or retried webhook causes duplicate fulfillment. |
+| **`conservation`** | `ledger_entries(order, kind, amount) <= ground_truth(...)` | Booking financial movements that do not exist in settlement history. |
+| **`no_unpaid_fulfillment`** | `fulfilled(order) => exists(legit_capture(order))` | Shipping goods or activating services without verified full payment. |
+| **`reconciliation_completeness`**| `legit_capture(order) => fulfilled(order)` | Webhook dropped in transit: money received, but order remains unfulfilled. |
+| **`signature_integrity`** | `ledger_events ∩ bad_signature_events == ∅` | State mutated by unsigned, forged, or tampered webhook deliveries. |
+| **`terminal_state_monotonicity`**| `status(order) in [CREATED -> PAID -> REFUNDED]` | Out-of-order event delivery reverts a refunded order back to paid. |
+| **`no_over_refund`** | `sum(refunded(order)) <= sum(captured(order))` | Refunding more capital than was captured on an order. |
+| **`currency_consistency`** | `ledger_entry.currency == order.currency` | Cross-currency mismatch booked against an order (e.g., USD vs INR). |
 
 ---
 
@@ -334,7 +334,7 @@ MUTATION TESTING (each defense removed once)
 
 ## Installation
 
-NIGHTSHIFT core requires **Python $\ge$ 3.10** and has **zero third-party dependencies** (runs entirely on the standard library).
+NIGHTSHIFT core requires **Python >= 3.10** and has **zero third-party dependencies** (runs entirely on the standard library).
 
 ```bash
 # Clone the repository
