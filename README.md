@@ -111,7 +111,7 @@ Verify the installation:
 
 ```bash
 pytest -q
-# Output: 130 passed in 0.85s
+# Output: 130 passed
 ```
 
 ---
@@ -136,14 +136,14 @@ You will see the live scan output with calculated financial exposure:
 LIVE SCAN · http://localhost:8000
   grade: F   attacks landed: 7/8   exposure: Rs 17,249.00
 
-  [HIT ] race             [CRITICAL]  6 parallel webhooks -> order fulfilled 6x (non-atomic dedupe)
-  [HIT ] unsigned         [CRITICAL]  an unsigned webhook was accepted and fulfilled
-  [HIT ] forged           [CRITICAL]  a forged webhook shipped an order
-  [HIT ] idor             [CRITICAL]  fulfilled an order that was never created
-  [HIT ] tamper           [HIGH    ]  booked Rs 20.00 for a Rs 2,000.00 order
-  [HIT ] over_refund      [HIGH    ]  refunded Rs 800.00 against a Rs 500.00 capture
-  [HIT ] stale            [MEDIUM  ]  a decades-old event was accepted (no freshness window)
-  [safe] replay                       order fulfilled 1x on a replayed webhook
+  [safe] replay                      order fulfilled 1x on a replayed webhook
+  [HIT ] race             [CRITICAL] 6 parallel webhooks -> order fulfilled 6x (non-atomic dedupe)
+  [HIT ] unsigned         [CRITICAL] an unsigned webhook was accepted and fulfilled
+  [HIT ] forged           [CRITICAL] a forged webhook shipped an order
+  [HIT ] tamper           [HIGH]     booked Rs 20 for a Rs 2000 order
+  [HIT ] over_refund      [HIGH]     refunded Rs 800 against a Rs 500 capture
+  [HIT ] stale            [MEDIUM]   a decades-old event was accepted (no freshness window)
+  [HIT ] idor             [CRITICAL] fulfilled an order that was never created
 ```
 
 #### Test the Hardened Target:
@@ -175,7 +175,7 @@ Launch an interactive split-screen web application in your browser:
 python -m nightshift dashboard
 ```
 
-- **Browser URL:** Automatically opens `http://127.0.0.1:8765`
+- **Browser URL:** Automatically opens `http://127.0.0.1:8888`
 - **Left Panel ("Acme Pay"):** A working e-commerce storefront with live order creation and order status board.
 - **Right Panel ("Attack Console"):** Real-time exploit console. Trigger individual attacks (`race`, `forged`, `tamper`, etc.) and watch the rupee loss ticker climb in real time.
 - **Hardened Toggle:** Switch between naive and hardened handler modes with one click to observe attacks bounce.
@@ -194,19 +194,22 @@ python -m nightshift prove
 This runs both naive and hardened servers side-by-side, applies the exact same attacks to both, and prints their internal `/state` books:
 
 ```text
-NIGHTSHIFT PROVE · watching theft in each shop's own ledger
+NIGHTSHIFT — PROOF OF EXPLOITABILITY
+Every rupee below is read from a shop's own /state ledger AFTER the attack —
+it is what the shop actually recorded, not a number NIGHTSHIFT invented.
 
-[1/8] replay: re-sends the same paid webhook 3x
-  naive   : [THEFT] Rs 500.00 extra shipped (order fulfilled 2x)
-  hardened: [SAFE ] rejected duplicate event
-
-[2/8] race: fires 6 identical webhooks at once
-  naive   : [THEFT] Rs 3,500.00 stolen (order fulfilled 6x via race window)
-  hardened: [SAFE ] atomic lock rejected concurrent duplicates
-
-[3/8] unsigned: sends a 'paid' webhook, no signature
-  naive   : [THEFT] Rs 400.00 stolen (accepted unsigned payload)
-  hardened: [SAFE ] rejected: invalid signature
+  attack       what the attacker does                 NAIVE shop             HARDENED shop
+  ------------ -------------------------------------- ---------------------- --------------
+  replay       re-sends the same paid webhook 3x      safe                   blocked
+  race         fires 6 identical webhooks at once     6x = Rs 3,500          blocked
+  unsigned     sends a 'paid' webhook, no signature   STOLEN Rs 400          blocked
+  forged       signs with a secret it doesn't know    STOLEN Rs 600          blocked
+  tamper       rewrites the amount way down           STOLEN Rs 2,000        blocked
+  over_refund  refunds more than was ever paid        STOLEN Rs 300          blocked
+  stale        replays a years-old 'paid' event       STOLEN Rs 450          blocked
+  idor         pays for an order that never existed   STOLEN Rs 9,999        blocked
+  ------------ -------------------------------------- ---------------------- --------------
+  TOTAL        money moved out of the shop            STOLEN Rs 17,249       Rs 0 lost
 ```
 
 ---
