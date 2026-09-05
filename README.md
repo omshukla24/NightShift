@@ -21,51 +21,6 @@ Traditional unit tests only exercise the happy path with valid, sequential paylo
 
 ---
 
-## 30-Second Live Scan
-
-Point NIGHTSHIFT at a running endpoint to red-team it in real time:
-
-```bash
-# 1. Start a bundled vulnerable payment target (or point at your own app)
-python -m nightshift serve --port 8000
-
-# 2. Fire the live red-team scan
-python -m nightshift scan --url http://localhost:8000
-```
-
-```text
-LIVE SCAN · http://localhost:8000
-  grade: F   attacks landed: 7/8   exposure: Rs 17,249.00
-
-  [HIT ] race             [CRITICAL]  6 parallel webhooks -> order fulfilled 6x (non-atomic dedupe)
-  [HIT ] unsigned         [CRITICAL]  an unsigned webhook was accepted and fulfilled
-  [HIT ] forged           [CRITICAL]  a forged webhook shipped an order
-  [HIT ] idor             [CRITICAL]  fulfilled an order that was never created
-  [HIT ] tamper           [HIGH    ]  booked Rs 20.00 for a Rs 2,000.00 order
-  [HIT ] over_refund      [HIGH    ]  refunded Rs 800.00 against a Rs 500.00 capture
-  [HIT ] stale            [MEDIUM  ]  a decades-old event was accepted (no freshness window)
-  [safe] replay                       order fulfilled 1x on a replayed webhook
-```
-
-Now test against the hardened implementation:
-
-```bash
-# Start the hardened target and rescan
-python -m nightshift serve --port 8001 --hardened
-python -m nightshift scan --url http://localhost:8001
-
-# LIVE SCAN · http://localhost:8001
-#   grade: A+   attacks landed: 0/8   exposure: Rs 0.00
-```
-
-Generate vulnerability advisories for every security hole discovered:
-
-```bash
-python -m nightshift advisories --url http://localhost:8000 -o advisories.md
-```
-
----
-
 ## Architecture
 
 NIGHTSHIFT separates **empirical proof** from **vulnerability explanation**. Money-safety is decided exclusively by **deterministic ledger oracles**. The AI copilot never decides whether money is safe; an oracle mathematically proves the violation, and AI only generates the incident narrative and root-cause advisory grounded in the proven trace.
@@ -110,6 +65,268 @@ flowchart TD
 
 ---
 
+## Step-by-Step User Guide: How to Run It Yourself
+
+### Prerequisites
+
+- **Python >= 3.10**
+- **Git**
+- *(Optional)* A free Razorpay test account at [dashboard.razorpay.com](https://dashboard.razorpay.com) for live SDK testing.
+
+---
+
+### 1. Installation & Environment Setup
+
+Clone the repository and set up a clean Python virtual environment:
+
+```bash
+# Clone the repository
+git clone https://github.com/omshukla24/NightShift.git
+cd NightShift
+
+# Create and activate a virtual environment
+# On macOS / Linux:
+python3 -m venv .venv
+source .venv/bin/activate
+
+# On Windows (PowerShell):
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+```
+
+Install the dependencies:
+
+```bash
+# Option A: Core scanner + dev tools (zero third-party dependencies for core scanner)
+pip install -e ".[dev]"
+
+# Option B: Core + Real Razorpay SDK integration (Flask + razorpay)
+pip install -e ".[merchant,dev]"
+
+# Option C: Complete bundle (FastAPI live demo target, Gemini AI triage)
+pip install -e ".[merchant,web,ai,dev]"
+```
+
+Verify the installation:
+
+```bash
+pytest -q
+# Output: 130 passed in 0.85s
+```
+
+---
+
+### 2. Workflow 1: 30-Second Instant Live Scan (No Keys Needed)
+
+Run a local red-team attack battery against the bundled reference server:
+
+#### Terminal 1 — Start the vulnerable target server:
+```bash
+python -m nightshift serve --port 8000
+```
+
+#### Terminal 2 — Run the red-team attack battery:
+```bash
+python -m nightshift scan --url http://localhost:8000
+```
+
+You will see the live scan output with calculated financial exposure:
+
+```text
+LIVE SCAN · http://localhost:8000
+  grade: F   attacks landed: 7/8   exposure: Rs 17,249.00
+
+  [HIT ] race             [CRITICAL]  6 parallel webhooks -> order fulfilled 6x (non-atomic dedupe)
+  [HIT ] unsigned         [CRITICAL]  an unsigned webhook was accepted and fulfilled
+  [HIT ] forged           [CRITICAL]  a forged webhook shipped an order
+  [HIT ] idor             [CRITICAL]  fulfilled an order that was never created
+  [HIT ] tamper           [HIGH    ]  booked Rs 20.00 for a Rs 2,000.00 order
+  [HIT ] over_refund      [HIGH    ]  refunded Rs 800.00 against a Rs 500.00 capture
+  [HIT ] stale            [MEDIUM  ]  a decades-old event was accepted (no freshness window)
+  [safe] replay                       order fulfilled 1x on a replayed webhook
+```
+
+#### Test the Hardened Target:
+Restart the server in **hardened** mode to verify that all defenses hold:
+
+```bash
+# In Terminal 1:
+python -m nightshift serve --port 8001 --hardened
+
+# In Terminal 2:
+python -m nightshift scan --url http://localhost:8001
+# Output: grade: A+   attacks landed: 0/8   exposure: Rs 0.00
+```
+
+#### Generate CVE Advisories:
+Export security advisories with CVSS ratings and remediation patches:
+
+```bash
+python -m nightshift advisories --url http://localhost:8000 -o advisories.md
+```
+
+---
+
+### 3. Workflow 2: Launch the Interactive Browser Dashboard
+
+Launch an interactive split-screen web application in your browser:
+
+```bash
+python -m nightshift dashboard
+```
+
+- **Browser URL:** Automatically opens `http://127.0.0.1:8765`
+- **Left Panel ("Acme Pay"):** A working e-commerce storefront with live order creation and order status board.
+- **Right Panel ("Attack Console"):** Real-time exploit console. Trigger individual attacks (`race`, `forged`, `tamper`, etc.) and watch the rupee loss ticker climb in real time.
+- **Hardened Toggle:** Switch between naive and hardened handler modes with one click to observe attacks bounce.
+- **Download Findings:** Export full security audit reports directly from the UI.
+
+---
+
+### 4. Workflow 3: Side-by-Side Exploit Proof (`nightshift prove`)
+
+If you want to see exact state transitions and database ledger records showing the theft happening:
+
+```bash
+python -m nightshift prove
+```
+
+This runs both naive and hardened servers side-by-side, applies the exact same attacks to both, and prints their internal `/state` books:
+
+```text
+NIGHTSHIFT PROVE · watching theft in each shop's own ledger
+
+[1/8] replay: re-sends the same paid webhook 3x
+  naive   : [THEFT] Rs 500.00 extra shipped (order fulfilled 2x)
+  hardened: [SAFE ] rejected duplicate event
+
+[2/8] race: fires 6 identical webhooks at once
+  naive   : [THEFT] Rs 3,500.00 stolen (order fulfilled 6x via race window)
+  hardened: [SAFE ] atomic lock rejected concurrent duplicates
+
+[3/8] unsigned: sends a 'paid' webhook, no signature
+  naive   : [THEFT] Rs 400.00 stolen (accepted unsigned payload)
+  hardened: [SAFE ] rejected: invalid signature
+```
+
+---
+
+### 5. Workflow 4: Connect to a Real Razorpay SDK Merchant
+
+Run NIGHTSHIFT against genuine Razorpay SDK code (`order.create` and `Utility.verify_webhook_signature`):
+
+1. **Get test credentials from [Razorpay Dashboard](https://dashboard.razorpay.com):**
+   - Toggle **Test Mode** ON.
+   - *Settings -> Webhooks -> Create New Webhook*: set a secret (e.g. `whsec_my_test_secret_2026`).
+   - *Settings -> API Keys -> Generate Test Key*: copy `Key ID` and `Key Secret`.
+
+2. **Set environment variables:**
+
+   **On Windows (PowerShell):**
+   ```powershell
+   $env:NIGHTSHIFT_SECRET = "whsec_my_test_secret_2026"
+   $env:RAZORPAY_KEY_ID = "rzp_test_xxxxxxxx"
+   $env:RAZORPAY_KEY_SECRET = "xxxxxxxxxxxxxxxx"
+   ```
+
+   **On macOS / Linux:**
+   ```bash
+   export NIGHTSHIFT_SECRET="whsec_my_test_secret_2026"
+   export RAZORPAY_KEY_ID="rzp_test_xxxxxxxx"
+   export RAZORPAY_KEY_SECRET="xxxxxxxxxxxxxxxx"
+   ```
+
+3. **Start the real merchant server:**
+   ```bash
+   # Vulnerable merchant
+   python -m nightshift merchant --port 5000 --open
+
+   # Or hardened merchant
+   python -m nightshift merchant --port 5001 --hardened
+   ```
+
+4. **Run the scan:**
+   ```bash
+   python -m nightshift --secret "whsec_my_test_secret_2026" scan --url http://localhost:5000
+   ```
+
+---
+
+### 6. Workflow 5: Scanning Your Own Custom Webhook Handler
+
+You can scan **any** application (Node.js/Express, Python/Django/Flask/FastAPI, Go, Java, PHP, Ruby) by exposing the 4-endpoint contract:
+
+#### Target Endpoints Contract
+
+1. `POST /register`: Accepts `{"order_id": str, "amount": int, "currency": str}`
+2. `POST /webhook`: Your Razorpay webhook handler accepting `X-Razorpay-Signature`
+3. `GET /state`: Returns `{"fulfillments": ["order_id_1"], "ledger": [{"event_id": "...", "order_id": "...", "kind": "capture", "amount": 50000, "currency": "INR"}]}`
+4. `GET /health`: Returns `200 OK`
+
+#### Example Python (FastAPI / Flask) State Shim:
+
+```python
+@app.route("/state", methods=["GET"])
+def state():
+    return {
+        "fulfillments": [order.id for order in orders if order.status == "fulfilled"],
+        "ledger": [
+            {
+                "event_id": entry.event_id,
+                "order_id": entry.order_id,
+                "kind": entry.kind,       # "capture" or "refund"
+                "amount": entry.amount,   # in paise (e.g. 50000 = Rs 500.00)
+                "currency": entry.currency
+            }
+            for entry in db.get_ledger()
+        ]
+    }
+```
+
+#### Example Node.js (Express) State Shim:
+
+```javascript
+app.get('/state', (req, res) => {
+  res.json({
+    fulfillments: db.getFulfilledOrders(),
+    ledger: db.getLedgerEntries()
+  });
+});
+```
+
+#### Run the Scan Against Your App:
+
+```bash
+python -m nightshift --secret <your_webhook_secret> scan --url http://localhost:<your_port>
+```
+
+---
+
+### 7. Workflow 6: Fuzzing, Mutation Testing & Invariant Reliability Scoring
+
+Run offline verification campaigns directly against internal handlers:
+
+```bash
+# 1. Run all 10 scenario suites
+python -m nightshift run --target naive
+python -m nightshift run --target fixed --fail-on-violation
+
+# 2. Compute 0-100 reliability score
+python -m nightshift score --target fixed
+
+# 3. Precision / recall benchmark + mutation testing (kill rate)
+python -m nightshift bench
+
+# 4. Run randomized fault fuzzing campaign with test-case shrinking
+python -m nightshift fuzz --target naive --trials 300 --seed 1
+python -m nightshift fuzz --target fixed --trials 500 --seed 1
+
+# 5. Export comprehensive HTML audit dashboard
+python -m nightshift report --target naive --format html -o audit_report.html
+```
+
+---
+
 ## The 8 Live Attack Vectors
 
 NIGHTSHIFT fires eight distinct attack classes directly at the target's `/webhook` endpoint:
@@ -146,7 +363,7 @@ The evaluation suite validates the ledger state against deterministic money-safe
 
 ## Target Contract (Scannable Interface)
 
-Any payment integration (written in Python, Node.js, Go, Java, Ruby, PHP, etc.) can be scanned if it implements four endpoints:
+Any payment integration can be scanned if it implements four endpoints:
 
 | Endpoint | Method | Payload / Response Format | Purpose |
 |:---|:---:|:---|:---|
@@ -154,77 +371,6 @@ Any payment integration (written in Python, Node.js, Go, Java, Ruby, PHP, etc.) 
 | `/webhook` | `POST` | Razorpay webhook payload + `X-Razorpay-Signature` header | Your actual payment webhook handler under test. |
 | `/state` | `GET` | `{"fulfillments": ["ord_123"], "ledger": [{"event_id": "...", "order_id": "...", "kind": "capture", "amount": 50000, "currency": "INR"}]}` | Read-only telemetry for oracle verification. |
 | `/health` | `GET` | `200 OK` | Liveness check before running test batteries. |
-
-### Minimal Shim for Existing Applications
-
-To test your existing Razorpay handler, add a lightweight `/state` shim:
-
-```python
-# Example: Flask / FastAPI shim
-@app.route("/state", methods=["GET"])
-def get_state():
-    return {
-        "fulfillments": db.get_fulfilled_order_ids(),
-        "ledger": db.get_payment_ledger_entries(),
-    }
-```
-
----
-
-## Interactive Live Dashboard & Exploit Proof
-
-### 1. The Live Console
-
-Launch a dual-pane live console that pairs an active storefront with a real-time red-team console:
-
-```bash
-python -m nightshift dashboard
-```
-
-- **Left Pane ("Acme Pay"):** Live store with active checkout, shopping cart, and order board.
-- **Right Pane ("Attack Console"):** Real-time exploit triggers. Watch fraudulent orders populate the board and rupee exposure tick upward in real time.
-- **Defense Switch:** Toggle from Naive to Hardened mode and watch incoming attacks immediately bounce.
-
-### 2. Side-by-Side Proof (`nightshift prove`)
-
-Verify exploit validity by inspecting state databases directly:
-
-```bash
-python -m nightshift prove
-```
-
-```text
-NIGHTSHIFT PROVE · watching theft in each shop's own ledger
-
-[1/8] replay: re-sends the same paid webhook 3x
-  naive   : [THEFT] Rs 500.00 extra shipped (order fulfilled 2x)
-  hardened: [SAFE ] rejected duplicate event
-
-[2/8] race: fires 6 identical webhooks at once
-  naive   : [THEFT] Rs 3,500.00 stolen (order fulfilled 6x via race window)
-  hardened: [SAFE ] atomic lock rejected concurrent duplicates
-
-[3/8] unsigned: sends a 'paid' webhook, no signature
-  naive   : [THEFT] Rs 400.00 stolen (accepted unsigned payload)
-  hardened: [SAFE ] rejected: invalid signature
-```
-
----
-
-## Real Razorpay Test-Mode Target
-
-NIGHTSHIFT includes a fully functional merchant implementation using the official `razorpay` Python SDK:
-
-```bash
-# Run the vulnerable reference merchant
-python -m nightshift merchant --port 5000 --open
-
-# Run the hardened reference merchant
-python -m nightshift merchant --port 5001 --hardened
-
-# Scan against your live webhook secret
-python -m nightshift --secret whsec_your_secret scan --url http://localhost:5000
-```
 
 ---
 
@@ -332,31 +478,14 @@ MUTATION TESTING (each defense removed once)
 
 ---
 
-## Installation
+## Environment Variables Reference
 
-NIGHTSHIFT core requires **Python >= 3.10** and has **zero third-party dependencies** (runs entirely on the standard library).
-
-```bash
-# Clone the repository
-git clone https://github.com/omshukla24/NightShift.git
-cd NightShift
-
-# Install core CLI and development tools
-pip install -e ".[dev]"
-
-# Optional: Install with real Razorpay SDK merchant server
-pip install -e ".[merchant,dev]"
-
-# Optional: Install all extras (FastAPI live demo target, Gemini triage)
-pip install -e ".[merchant,web,ai,dev]"
-```
-
-Run test suite:
-
-```bash
-pytest -q
-# 130 passed in 0.82s
-```
+| Variable | Required For | Description | Default |
+|:---|:---:|:---|:---|
+| `NIGHTSHIFT_SECRET` | Live Scan & Verification | The HMAC-SHA256 webhook secret shared between scanner and target. | `whsec_nightshift_demo` |
+| `RAZORPAY_KEY_ID` | Storefront Checkout | Razorpay API Key ID (`rzp_test_...`) for creating live test-mode orders. | `None` |
+| `RAZORPAY_KEY_SECRET` | Storefront Checkout | Razorpay API Key Secret for test-mode checkout operations. | `None` |
+| `GEMINI_API_KEY` | *(Optional)* AI Triage | API key for automated incident writeups grounded in oracle proofs. | `None` (falls back to deterministic playbook) |
 
 ---
 
