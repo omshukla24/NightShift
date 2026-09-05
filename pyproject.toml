@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nightshift"
+version = "0.5.0"
+description = "The 2 AM machine — fault-injection & invariant checking for Razorpay integrations."
+requires-python = ">=3.10"
+dependencies = []   # the core (scanner, oracles, reference server) runs on the stdlib alone
+
+[project.optional-dependencies]
+merchant = ["flask", "razorpay"]   # the REAL Razorpay-integrated target you scan
+web = ["fastapi", "uvicorn"]
+ai = ["google-generativeai"]
+dev = ["pytest"]
+
+[project.scripts]
+nightshift = "nightshift.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["nightshift*"]
+
+[tool.setuptools.package-data]
+nightshift = ["py.typed"]
+
+[tool.ruff]
+line-length = 110
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

@@ -1,0 +1,52 @@
+# Drop-in payment security scan for any repo.
+# Copy this to .github/workflows/ in your merchant app. On every PR it starts your
+# integration and red-teams it — replay, race, unsigned, forged, tamper, over-refund,
+# stale, IDOR — and fails the build if any attack moves money it shouldn't.
+#
+# Your app only needs two endpoints: POST /webhook (your Razorpay handler) and
+# GET /state (a tiny read-only shim returning {"fulfillments":[...], "ledger":[...]}).
+
+name: nightshift-payment-scan
+
+on: [pull_request, workflow_dispatch]
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install NIGHTSHIFT
+        run: pip install -e .        # or: pip install git+https://github.com/<you>/nightshift
+
+      # ---- start YOUR integration in test mode -------------------------------
+      # Replace this with however your app boots. It must listen on $PORT and
+      # expose /webhook and /state. For a quick demo you can use the bundled
+      # reference target instead:
+      - name: Start app under test
+        run: |
+          NIGHTSHIFT_SECRET=${{ secrets.RAZORPAY_WEBHOOK_SECRET }} \
+            python -m nightshift serve --hardened --port 8000 &
+          for i in $(seq 1 20); do curl -sf localhost:8000/health && break; sleep 0.5; done
+
+      # ---- red-team it -------------------------------------------------------
+      - name: NIGHTSHIFT scan (fails the build on any landed attack)
+        env:
+          NIGHTSHIFT_SECRET: ${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
+        run: python -m nightshift scan --url http://localhost:8000 --fail-on-hit
+
+      - name: Generate security advisories
+        if: always()
+        env:
+          NIGHTSHIFT_SECRET: ${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
+        run: python -m nightshift advisories --url http://localhost:8000 -o nightshift-advisories.md
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: nightshift-advisories
+          path: nightshift-advisories.md

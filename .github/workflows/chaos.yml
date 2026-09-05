@@ -1,0 +1,41 @@
+name: nightshift-chaos
+
+# The harness runs on every push. Green means: the hardened integration still
+# holds every money-safety invariant, and the oracle suite still has zero false
+# positives. A regression in either fails the build.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  chaos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Test suite (112 tests, incl. measured accuracy + property + fuzz)
+        run: pytest -q
+      - name: Measured accuracy + mutation testing
+        run: python -m nightshift bench
+      - name: Hardened integration must hold every invariant
+        run: python -m nightshift run --target fixed --fail-on-violation
+      - name: Hardened integration must survive the fuzz campaign
+        run: python -m nightshift fuzz --target fixed --trials 500 --seed 1
+      - name: Reliability score (for the log)
+        run: python -m nightshift score --target fixed
+      - name: Publish the carnage report + SARIF findings
+        run: |
+          python -m nightshift report --target naive -o report.html
+          python -m nightshift report --target naive --format sarif -o nightshift.sarif
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nightshift-report
+          path: |
+            report.html
+            nightshift.sarif
